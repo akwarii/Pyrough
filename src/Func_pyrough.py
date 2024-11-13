@@ -6,115 +6,48 @@
 # Func_pyrough are all the functions used in pyrough. These are required to execute the Pyrough
 # main code.
 # ---------------------------------------------------------------------------
-
 import math
 
 import gmsh
 import meshio
 import numpy as np
+import numpy.typing as npt
 import scipy.special as sp
 from ase.build import bulk
 from wulffpack import SingleCrystal
 
 
-def rdnsurf(m, n, B, xv, yv, sfrM, sfrN):
+def initialize_gmsh_model(name: str) -> None:
     """
-    Generates random surface roughness that will replace the previous z values in the vertices
-    matrix.
+    Initializes a gmsh model and sets the terminal verbosity to 0.
 
-    :type m: array
-    :param m: Wavenumber
-    :type n: array
-    :param n: Wavenumber
-    :type B: float
-    :param B: The degree the roughness is dependent on
-    :type xv: array
-    :param xv: Unique x coordinate values from the objects vertices
-    :type yv: array
-    :param yv: Unique y coordinate values from the objects vertices
-    :type sfrM: array
-    :param sfrM: Matrix of random numbers that range from 1 to 2N
-    :type sfrN: array
-    :param sfrN: Matrix of random numbers that range from 1 to 2N
-
-    :return: Roughness height matrix
+    :param model_type: Name of the model
+    :type model_type: str
     """
-    print("====== > Creating random rough surface....")
-    Z = 0.0
-    for i in range(len(sfrM)):
-        for j in range(len(sfrN)):
-            if sfrM[i] == 0 and sfrN[j] == 0:
-                continue
-            else:
-                mod = (sfrM[i] ** 2 + sfrN[j] ** 2) ** (-0.5 * B)
-                Z = Z + m[i][j] * mod * np.cos(2 * np.pi * (sfrM[i] * xv + sfrN[j] * yv) + n[i][j])
-    return Z
+    gmsh.initialize()
+    gmsh.option.setNumber("General.Terminal", 0)
+    gmsh.model.add(name)
 
 
-def rdnsurf_2(m, n, B, xv, yv, sfrM, sfrN):
+def generate_geo_mesh(dim: int = 2) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int_]]:
+    """Generates the mesh current gmsh model and returns the vertices and faces.
+
+    :return: vertices and faces of the mesh
     """
-    Generates random surface roughness that will replace the previous z values in the vertices
-    matrix.
+    gmsh.model.mesh.generate(dim)
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
+    element_types, _, element_nodes = gmsh.model.mesh.getElements(dim=2)
 
-    :type m: array
-    :param m: Wavenumber
-    :type n: array
-    :param n: Wavenumber
-    :type B: float
-    :param B: The degree the roughness is dependent on
-    :type xv: array
-    :param xv: Unique x coordinate values from the objects vertices
-    :type yv: array
-    :param yv: Unique y coordinate values from the objects vertices
-    :type sfrM: array
-    :param sfrM: Matrix of random numbers that range from 1 to 2N
-    :type sfrN: array
-    :param sfrN: Matrix of random numbers that range from 1 to 2N
+    triangle_idx = np.where(element_types == 2)[0][0]
 
-    :return: Roughness height matrix
-    """
-    Z = 0.0
-    for i in range(len(sfrM)):
-        for j in range(len(sfrN)):
-            if sfrM[i] == 0 and sfrN[j] == 0:
-                continue
-            else:
-                mod = (sfrM[i] ** 2 + sfrN[j] ** 2) ** (-0.5 * B)
-                Z = Z + m[i][j] * mod * np.cos(2 * np.pi * (sfrM[i] * xv + sfrN[j] * yv) + n[i][j])
-    return Z
+    vertices = np.reshape(node_coords, (-1, 3))
+    faces = np.reshape(element_nodes[triangle_idx], (-1, 3)) - 1
 
-
-def rho(x, y):
-    """
-    The Pythagorean theorem equation is used to obtain a value for a side of a triangle.
-
-    :param x: Represents the length of a side in the triangle
-    :type x: int
-    :param y: Represents the length of a side in the triangle
-    :type y: int
-
-    :return: The length of hypotenuse
-    """
-    return np.sqrt(x**2 + y**2)
-
-
-def theta(x, y):
-    """
-    Calculates the arctan2 of two given arrays whose size are the same.
-
-    :param x: x coordinates
-    :type x: array
-    :param y: y coordinates
-    :type y: array
-
-    :return: An array of angles in radians
-    """
-    return np.arctan2(y, x)
+    return vertices, faces
 
 
 def cylinder(length, r, ns):
     """
-
     :param length: Length of the cylinder
     :type length: float
     :param r: Radius of the cylinder
@@ -124,50 +57,35 @@ def cylinder(length, r, ns):
 
     :return: vertices and faces of cylinder mesh
     """
-    print("====== > Creating the Mesh")
-    # Initialize Gmsh
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Terminal", 0)
-    # Create a new model
-    gmsh.model.add("Cylinder")
+    initialize_gmsh_model("Cylinder")
+
     # Add points to define the bottom circle
     center = gmsh.model.geo.addPoint(0, 0, 0)
-    p1 = gmsh.model.geo.addPoint(r, 0, 0)
-    p2 = gmsh.model.geo.addPoint(0, r, 0)
-    p3 = gmsh.model.geo.addPoint(-r, 0, 0)
-    p4 = gmsh.model.geo.addPoint(0, -r, 0)
+    coords = [(r * np.cos(i * np.pi / 2), r * np.sin(i * np.pi / 2), 0.0) for i in range(4)]
+    points = [gmsh.model.geo.addPoint(*coord) for coord in coords]
+
     # Create circle arcs
-    arc1 = gmsh.model.geo.addCircleArc(p1, center, p2)
-    arc2 = gmsh.model.geo.addCircleArc(p2, center, p3)
-    arc3 = gmsh.model.geo.addCircleArc(p3, center, p4)
-    arc4 = gmsh.model.geo.addCircleArc(p4, center, p1)
-    # Create bottom plane surface (disk)
-    loop = gmsh.model.geo.addCurveLoop([arc1, arc2, arc3, arc4])
+    arcs = [gmsh.model.geo.addCircleArc(points[i], center, points[(i + 1) % 4]) for i in range(4)]
+
+    # Create bottom plane surface
+    loop = gmsh.model.geo.addCurveLoop(arcs)
     disk = gmsh.model.geo.addPlaneSurface([loop])
+
     # Extrude the disk to get the cylinder
     gmsh.model.geo.extrude([(2, disk)], 0, 0, length, [length // ns])
+
     # Set a constant mesh size
     f = gmsh.model.mesh.field.add("MathEval")
     gmsh.model.mesh.field.setString(f, "F", str(ns))
+
     # Set the meshing field as the background field
     gmsh.model.mesh.field.setAsBackgroundMesh(f)
-    # Synchronize to process the defined geometry
+
     gmsh.model.geo.synchronize()
-    # Mesh the cylinder (this uses default meshing options)
-    gmsh.model.mesh.generate(2)  # 3 means 3D mesh
-    # Save the mesh to a file
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
-    return (vertices, faces)
+
+    return vertices, faces
 
 
 def box(width, length, height, ns):
@@ -183,13 +101,8 @@ def box(width, length, height, ns):
 
     :return: vertices and faces of box mesh
     """
-    print("====== > Creating the Mesh")
-    # Initialize Gmsh
-    gmsh.initialize()
-    # Silence Gmsh's output
-    gmsh.option.setNumber("General.Terminal", 0)
-    # Create a new model
-    gmsh.model.add("Box")
+    initialize_gmsh_model("Box")
+
     # Define the box's vertices
     p1 = gmsh.model.geo.addPoint(0, 0, 0)
     p2 = gmsh.model.geo.addPoint(length, 0, 0)
@@ -239,23 +152,12 @@ def box(width, length, height, ns):
     f = gmsh.model.mesh.field.add("MathEval")
     gmsh.model.mesh.field.setString(f, "F", str(ns))
     gmsh.model.mesh.field.setAsBackgroundMesh(f)
-    # Synchronize the model
+
     gmsh.model.geo.synchronize()
-    # Generate the 3D mesh
-    gmsh.model.mesh.generate(2)
-    # Save the mesh to a file
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
-    return (vertices, faces)
+
+    return vertices, faces
 
 
 def sphere(r, ns):
@@ -267,31 +169,18 @@ def sphere(r, ns):
 
     :return: vertices and faces of sphere mesh
     """
-    print("====== > Creating the Mesh")
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Terminal", 0)  # Turn off verbose output
-    gmsh.model.add("sphere")
-    # Create the sphere
+    initialize_gmsh_model("Sphere")
+
     gmsh.model.occ.addSphere(0, 0, 0, r)
     gmsh.model.occ.synchronize()
-    # Set the mesh size
+
     gmsh.option.setNumber("Mesh.MeshSizeMin", ns)
     gmsh.option.setNumber("Mesh.MeshSizeMax", ns)
-    # Generate 2D mesh
-    gmsh.model.mesh.generate(2)
-    # Save the mesh to a file
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
+
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
-    return (vertices, faces)
+
+    return vertices, faces
 
 
 def poly(length, base_points, ns):
@@ -305,13 +194,7 @@ def poly(length, base_points, ns):
 
     :return: vertices and faces of faceted wire mesh
     """
-    print("====== > Creating the Mesh")
-    gmsh.initialize()
-
-    gmsh.model.add("wire")
-
-    # Set verbosity to False
-    gmsh.option.setNumber("General.Terminal", 0)
+    initialize_gmsh_model("Wire")
 
     # Define the base points in gmsh
     base_gmsh_points = []
@@ -331,22 +214,11 @@ def poly(length, base_points, ns):
     # Extrude the surface to create the wire
     gmsh.model.geo.extrude([(2, surface)], 0, 0, length, [length // ns])
 
-    # Synchronize and mesh the model
     gmsh.model.geo.synchronize()
-    gmsh.model.mesh.generate(2)
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
-    # Save the mesh to a file
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
-    return (vertices, faces)
+
+    return vertices, faces
 
 
 def wulff(points, faces, ns):
@@ -360,11 +232,9 @@ def wulff(points, faces, ns):
 
     :return: vertices and faces of Wulff mesh
     """
-    print("====== > Creating the Mesh")
     # Initialize the Gmsh API
-    gmsh.initialize()
-    gmsh.option.setNumber("General.Terminal", 0)
-    gmsh.model.add("MeshFromPointsAndFaces")
+    initialize_gmsh_model("MeshFromPointsAndFaces")
+
     # Add points to the model
     point_tags = [gmsh.model.geo.addPoint(p[0], p[1], p[2], ns) for p in points]
     # Create surfaces from faces:
@@ -378,23 +248,12 @@ def wulff(points, faces, ns):
         # Remove the explicit tag to let Gmsh assign it automatically
         loop = gmsh.model.geo.addCurveLoop(line_loops)
         gmsh.model.geo.addPlaneSurface([loop])
-    # Synchronize the data from Python to Gmsh
+
     gmsh.model.geo.synchronize()
-    # Mesh the surface
-    gmsh.model.mesh.generate(2)
-    # Save the mesh as STL
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
-    return (vertices, faces)
+
+    return vertices, faces
 
 
 def cube(length, ns):
@@ -406,49 +265,122 @@ def cube(length, ns):
 
     :return: vertices and faces of cube mesh
     """
-    print("====== > Creating the Mesh")
-    # Initialize Gmsh
-    gmsh.initialize()
-    # Silence Gmsh's output
-    gmsh.option.setNumber("General.Terminal", 0)
-    # Create a new model
-    gmsh.model.add("Cube")
+    initialize_gmsh_model("Cube")
+
     # Add points for the base square
     p1 = gmsh.model.geo.addPoint(0, 0, 0)
     p2 = gmsh.model.geo.addPoint(length, 0, 0)
     p3 = gmsh.model.geo.addPoint(length, length, 0)
     p4 = gmsh.model.geo.addPoint(0, length, 0)
+
     # Connect the points to form the base square
     l1 = gmsh.model.geo.addLine(p1, p2)
     l2 = gmsh.model.geo.addLine(p2, p3)
     l3 = gmsh.model.geo.addLine(p3, p4)
     l4 = gmsh.model.geo.addLine(p4, p1)
+
     # Create a surface from the base square
     base_loop = gmsh.model.geo.addCurveLoop([l1, l2, l3, l4])
     base_surface = gmsh.model.geo.addPlaneSurface([base_loop])
+
     # Extrude the base surface to get the cube
     gmsh.model.geo.extrude([(2, base_surface)], 0, 0, length)
+
     # Define a uniform mesh size
     f = gmsh.model.mesh.field.add("MathEval")
     gmsh.model.mesh.field.setString(f, "F", str(ns))
     gmsh.model.mesh.field.setAsBackgroundMesh(f)
-    # Synchronize the model
+
     gmsh.model.geo.synchronize()
-    # Generate the 3D mesh
-    gmsh.model.mesh.generate(2)
-    # Save the mesh to a file
-    # Extract node information
-    node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
-    # Extract 2D surface element types and connectivity
-    element_types, element_tags, element_nodes = gmsh.model.mesh.getElements(dim=2)
+    vertices, faces = generate_geo_mesh()
     gmsh.finalize()
-    # Reshape the node coordinates into a more user-friendly format
-    vertices = node_coords.reshape(-1, 3)
-    # Find the triangles from the extracted elements
-    triangle_idx = np.where(element_types == 2)[0][0]  # 2 corresponds to triangles
-    faces = element_nodes[triangle_idx].reshape(-1, 3) - 1
-    print("====== > Done creating the Mesh")
+
+    return vertices, faces
+
+
+def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
+    """
+    Reads an input stl file or creates a new one if no input
+
+    :param sample_type: Name of the sample
+    :type sample_type: str
+    :param raw_stl: Name of the input stl file
+    :type raw_stl: str
+    :param width: Width of the box
+    :type width: float
+    :param length: Length of the box/wire
+    :type length: float
+    :param height: Height of the box
+    :type height: float
+    :param radius: Radius of the wire/sphere
+    :type radius: float
+    :param ns: The number of segments desired
+    :type ns: int
+    :param points: List of points constituting the base (in case of faceted wire)
+    :type points: list
+
+    :return: List of points and faces
+    """
+    vertices = []
+    faces = []
+
+    if raw_stl == "na":
+        print("====== > Creating the Mesh")
+        if sample_type == "box" or sample_type == "grain":
+            vertices, faces = box(width, length, height, ns)
+        elif sample_type == "wire":
+            vertices, faces = cylinder(length, radius, ns)
+        elif sample_type == "sphere":
+            vertices, faces = sphere(radius, ns)
+        elif sample_type == "poly":
+            vertices, faces = poly(length, points, ns)
+        elif sample_type == "cube":
+            vertices, faces = cube(length, ns)
+        else:
+            raise ValueError("Invalid sample type")
+        print("====== > Done creating the Mesh")
+    else:
+        mesh = meshio.read(raw_stl)
+        vertices, faces = mesh.points, mesh.cells
+        faces = faces[0][1]
     return (vertices, faces)
+
+
+def read_stl_wulff(raw_stl, obj_points, obj_faces, ns):
+    """
+    Reads an input stl file or creates a new one if no input. Wulff case.
+
+    :param raw_stl: Name of the input stl file
+    :type raw_stl: str
+    :param obj_points: List of points from OBJ file
+    :type obj_points: list
+    :param obj_faces: List of faces from OBJ file
+    :type obj_faces: list
+    :param ns: Mesh size
+    :type ns: float
+
+    :returns: List of points and faces
+    """
+    if raw_stl == "na":
+        vertices, faces = wulff(obj_points, obj_faces, ns)
+    else:
+        mesh = meshio.read(raw_stl)
+        vertices, faces = mesh.vertices, mesh.faces
+    return (vertices, faces)
+
+
+def stl_file(vertices, faces, out_pre):
+    """
+    Creates an stl file from the vertices and faces of the desired object.
+
+    :param vertices: The coordinates obtained from the mesh
+    :type vertices: array
+    :param faces: The faces of the triangles generated from the mesh
+    :type vertices: array
+    :param out_pre: Prefix of the output files
+    :type out_pre: str
+    """
+    write_stl(out_pre + ".stl", vertices, np.array(faces))
 
 
 def make_obj(
@@ -507,88 +439,7 @@ def make_obj(
                 obj_faces.append(coord)
     obj_points = np.asarray(obj_points)
     obj_points_f = rotate_obj_wulff(obj_points, orien_x, orien_z)
-    return (obj_points_f, obj_faces)
-
-
-def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
-    """
-    Reads an input stl file or creates a new one if no input
-
-    :param sample_type: Name of the sample
-    :type sample_type: str
-    :param raw_stl: Name of the input stl file
-    :type raw_stl: str
-    :param width: Width of the box
-    :type width: float
-    :param length: Length of the box/wire
-    :type length: float
-    :param height: Height of the box
-    :type height: float
-    :param radius: Radius of the wire/sphere
-    :type radius: float
-    :param ns: The number of segments desired
-    :type ns: int
-    :param points: List of points constituting the base (in case of faceted wire)
-    :type points: list
-
-    :return: List of points and faces
-    """
-    vertices = []
-    faces = []
-    if raw_stl == "na":
-        if sample_type == "box" or sample_type == "grain":
-            vertices, faces = box(width, length, height, ns)
-        elif sample_type == "wire":
-            vertices, faces = cylinder(length, radius, ns)
-        elif sample_type == "sphere":
-            vertices, faces = sphere(radius, ns)
-        elif sample_type == "poly":
-            vertices, faces = poly(length, points, ns)
-        elif sample_type == "cube":
-            vertices, faces = cube(length, ns)
-    else:
-        mesh = meshio.read(raw_stl)
-        vertices, faces = mesh.points, mesh.cells
-        faces = faces[0][1]
-    return (vertices, faces)
-
-
-def read_stl_wulff(raw_stl, obj_points, obj_faces, ns):
-    """
-    Reads an input stl file or creates a new one if no input. Wulff case.
-
-    :param raw_stl: Name of the input stl file
-    :type raw_stl: str
-    :param obj_points: List of points from OBJ file
-    :type obj_points: list
-    :param obj_faces: List of faces from OBJ file
-    :type obj_faces: list
-    :param ns: Mesh size
-    :type ns: float
-
-    :returns: List of points and faces
-    """
-    if raw_stl == "na":
-        vertices, faces = wulff(obj_points, obj_faces, ns)
-    else:
-        mesh = meshio.read(raw_stl)
-        vertices, faces = mesh.vertices, mesh.faces
-    return (vertices, faces)
-
-
-def stl_file(vertices, faces, out_pre):
-    """
-    Creates an stl file from the vertices and faces of the desired object.
-
-    :param vertices: The coordinates obtained from the mesh
-    :type vertices: array
-    :param faces: The faces of the triangles generated from the mesh
-    :type vertices: array
-    :param out_pre: Prefix of the output files
-    :type out_pre: str
-    """
-    write_stl(out_pre + ".stl", vertices, np.array(faces))
-    return
+    return obj_points_f, obj_faces
 
 
 def phi(t, z):
@@ -622,7 +473,7 @@ def vertex_tp(x, y, t, z):
 
     :return: An array with angles as elements
     """
-    return np.array([theta(y, x), phi(t, z)]).T
+    return np.array([np.arctan2(y, x), phi(t, z)]).T
 
 
 def radius(v):
@@ -695,13 +546,13 @@ def stat_analysis(z, N, M, C1, B, sample_type, out_pre):
     np.savetxt(out_pre + "_stat.txt", stats, fmt="%s")
     print("")
     print("------------ Random Surface Parameters-----------------")
-    print("         N =", N, "  M = ", M, "  C1 = ", C1, "  eta = ", round(0.5 * B - 1, 2))
-    print("No. points = ", nu_points)
-    print("Mean_Value = ", mean)
-    print(" Stand_dev = ", stand)
-    print("       RMS = ", rms)
-    print("  Skewness = ", skewness)
-    print("  Kurtosis = ", kurtosis)
+    print(f"         N = {N}  M = {M}  C1 = {C1}  eta = {round(0.5 * B - 1, 2)}")
+    print(f"No. points = {nu_points}")
+    print(f"Mean_Value = {mean}")
+    print(f" Stand_dev = {stand}")
+    print(f"       RMS = {rms}")
+    print(f"  Skewness = {skewness}")
+    print(f"  Kurtosis = {kurtosis}")
     print("--------------------------------------------------------")
 
 
@@ -803,7 +654,7 @@ def node_surface(sample_type, vertices, nodenumber, points, faces):
     if sample_type == "wire":
         max_height = max(vertices[:, 1])
         for x in range(0, len(vertices)):
-            if rho(vertices[x, 0], vertices[x, 1]) > (max_height - 0.1):
+            if np.hypot(vertices[x, 0], vertices[x, 1]) > (max_height - 0.1):
                 stay.append(x)
         no_need = np.delete(nodenumber, stay)  # delete from nodenumbers the ones in the surface
         nodesurf = np.delete(vertices, no_need, 0)
@@ -985,8 +836,8 @@ def coord_cart_sphere(C1, C2, r, vertices, t, z, y, x):
 
     :return: Cartesian coordinates
     """
-    x = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.cos(theta(x, y))
-    y = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.sin(theta(x, y))
+    x = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.cos(np.arctan2(x, y))
+    y = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.sin(np.arctan2(x, y))
     z = (C1 * C2 * r + radius(vertices)) * np.cos(phi(t, z))
     new_vertex = np.array([x, y, z]).T
     return new_vertex
@@ -1089,20 +940,14 @@ def rms_calc(Z):
     return np.sqrt(np.sum(Z * Z) / len(Z))
 
 
-def random_surf2(sample_type, m, n, N, M, B, xv, yv, sfrM, sfrN, C1, RMS, out_pre):
+def random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS):
     """
     Returns an array with the Z values representing the surface roughness.
 
-    :param sample_type: The type of the sample
-    :type sample_type: str
     :param m: Wavenumbers
     :type m: array
     :param n: Wavenumbers
     :type n: array
-    :param N: Scaling cartesian position
-    :type N: int
-    :param M: Scaling cartesian position
-    :type M: int
     :param B: The degree of the roughness
     :type B: float
     :param xv: Unique x coordinate values from the objects vertices
@@ -1122,14 +967,22 @@ def random_surf2(sample_type, m, n, N, M, B, xv, yv, sfrM, sfrN, C1, RMS, out_pr
 
     :return: Surface roughness
     """
-    Z = rdnsurf(m, n, B, xv, yv, sfrM, sfrN)
+    print("====== > Creating random rough surface....")
+
+    Z = 0.0
+    for i in range(len(sfrM)):
+        for j in range(len(sfrN)):
+            if sfrM[i] == 0.0 and sfrN[j] == 0.0:
+                continue
+            else:
+                mod = (sfrM[i] ** 2 + sfrN[j] ** 2) ** (-0.5 * B)
+                Z = Z + m[i][j] * mod * np.cos(2 * np.pi * (sfrM[i] * xv + sfrN[j] * yv) + n[i][j])
+
     if isinstance(C1, str):
-        RMS_i = rms_calc(Z)
-        C1 = RMS / RMS_i
-        Z = C1 * Z
-    else:
-        Z = C1 * Z
-    stat_analysis(Z, N, M, C1, B, sample_type, out_pre)
+        C1 = RMS / rms_calc(Z)
+
+    Z *= C1
+
     return Z
 
 
@@ -1240,9 +1093,9 @@ def cart2cyl(matrix):
     """
     cyl_matrix = []
     for p in matrix:
-        r = rho(p[0], p[1])
-        thet = theta(p[0], p[1])
-        cyl_matrix.append([r, thet, p[2], p[3]])
+        r = np.hypot(p[0], p[1])
+        theta = np.arctan2(p[0], p[1])
+        cyl_matrix.append([r, theta, p[2], p[3]])
     cyl_matrix = np.asarray(cyl_matrix)
     return cyl_matrix
 
@@ -1404,12 +1257,9 @@ def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corne
         xv = surf_norm[:, 0]
         yv = surf_norm[:, 1]
         m, n = random_numbers(sfrN, sfrM)
-        if isinstance(C1, str):
-            z = rdnsurf_2(m, n, B, xv, yv, sfrM, sfrN)
-            C1 = RMS / rms_calc(z)
-            z = C1 * z
-        else:
-            z = C1 * rdnsurf_2(m, n, B, xv, yv, sfrM, sfrN)
+
+        z = random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS)
+
         z = z + abs(np.min(z))
         for i in range(len(surf)):
             p = surf[i]
@@ -1600,7 +1450,7 @@ def align_poly(vertices, angles):
     return rotated_points
 
 
-def refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem):
+def refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem) -> None:
     """
 
     :param type_sample: Type of object
@@ -1616,18 +1466,34 @@ def refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem):
 
     :return: Refined 3D meshs for all required formats
     """
-    print("====== > Refining mesh for " + type_sample + " object")
+    print(f"====== > Refining mesh for {type_sample} object")
+
     if "stl" in ext_fem:
         ext_fem.remove("stl")
-    if (type_sample == "box") or (type_sample == "grain"):
-        refine_box(out_pre, ns, alpha, 45, ext_fem)
-    elif type_sample == "wire" or type_sample == "poly":
-        refine_wire(out_pre, ns, alpha, 0, ext_fem)
-    elif type_sample == "sphere":
-        refine_sphere(out_pre, ns, alpha, 0, ext_fem)
-    elif type_sample == "wulff" or type_sample == "cube":
-        refine_sphere(out_pre, ns, alpha, 45, ext_fem)
-    return ()
+
+    refinement_strategy_map = {
+        "box": refine_box,
+        "grain": refine_box,
+        "wire": refine_wire,  # TODO currently broken ?
+        "poly": refine_wire,  # TODO currently broken ?
+        "sphere": refine_sphere,  # TODO currently broken ?
+        "wulff": refine_sphere,  # TODO currently broken ?
+        "cube": refine_sphere,
+    }
+    refinement_angle_map = {
+        "box": 45.0,
+        "grain": 45.0,
+        "wire": 0.0,
+        "poly": 0.0,
+        "sphere": 0.0,
+        "wulff": 45.0,
+        "cube": 45.0,
+    }
+
+    refine = refinement_strategy_map[type_sample]
+    angle = refinement_angle_map[type_sample]
+
+    refine(out_pre, ns, alpha, angle, ext_fem)
 
 
 def refine_box(out_pre, ns, alpha, angle, ext_fem):
@@ -1653,10 +1519,7 @@ def refine_box(out_pre, ns, alpha, angle, ext_fem):
     gmsh.merge(out_pre + ".stl")
 
     # Force curves to be split on given angle:
-    curveAngle = 180
-    gmsh.model.mesh.classifySurfaces(
-        angle * math.pi / 180.0, True, 0, curveAngle * math.pi / 180.0
-    )
+    gmsh.model.mesh.classifySurfaces(np.deg2rad(angle), True, False)
 
     gmsh.model.mesh.createGeometry()
     s = gmsh.model.getEntities(2)
@@ -1665,7 +1528,7 @@ def refine_box(out_pre, ns, alpha, angle, ext_fem):
     gmsh.model.geo.synchronize()
 
     # Extract node information
-    node_tags, node_coords, node_param = gmsh.model.mesh.getNodes()
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
     # Reshape the node coordinates into a more user-friendly format
     vertices = node_coords.reshape(-1, 3)
     # Variables
@@ -1680,7 +1543,6 @@ def refine_box(out_pre, ns, alpha, angle, ext_fem):
     gmsh.write(out_pre + ".stl")
     for e in ext_fem:
         gmsh.write(out_pre + "." + e)
-    return ()
 
 
 def refine_wire(out_pre, ns, alpha, angle, ext_fem):
@@ -1705,10 +1567,7 @@ def refine_wire(out_pre, ns, alpha, angle, ext_fem):
     # Let's merge an STL mesh that we would like to remesh.
     gmsh.merge(out_pre + ".stl")
     # Force curves to be split on given angle:
-    curveAngle = 180
-    gmsh.model.mesh.classifySurfaces(
-        angle * math.pi / 180.0, True, 0, curveAngle * math.pi / 180.0
-    )
+    gmsh.model.mesh.classifySurfaces(np.deg2rad(angle), True, False)
 
     gmsh.model.mesh.createGeometry()
 
@@ -1718,7 +1577,7 @@ def refine_wire(out_pre, ns, alpha, angle, ext_fem):
     gmsh.model.geo.synchronize()
 
     # Extract node information
-    node_tags, node_coords, node_param = gmsh.model.mesh.getNodes()
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
     # Reshape the node coordinates into a more user-friendly format
     vertices = node_coords.reshape(-1, 3)
 
@@ -1737,7 +1596,6 @@ def refine_wire(out_pre, ns, alpha, angle, ext_fem):
     gmsh.write(out_pre + ".stl")
     for e in ext_fem:
         gmsh.write(out_pre + "." + e)
-    return ()
 
 
 def refine_sphere(out_pre, ns, alpha, angle, ext_fem):
@@ -1763,10 +1621,7 @@ def refine_sphere(out_pre, ns, alpha, angle, ext_fem):
     gmsh.merge(out_pre + ".stl")
 
     # Force curves to be split on given angle:
-    curveAngle = 180
-    gmsh.model.mesh.classifySurfaces(
-        angle * math.pi / 180.0, True, 0, curveAngle * math.pi / 180.0
-    )
+    gmsh.model.mesh.classifySurfaces(np.deg2rad(angle), True, False)
 
     gmsh.model.mesh.createGeometry()
 
@@ -1776,7 +1631,7 @@ def refine_sphere(out_pre, ns, alpha, angle, ext_fem):
     gmsh.model.geo.synchronize()
 
     # Extract node information
-    node_tags, node_coords, node_param = gmsh.model.mesh.getNodes()
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
     # Reshape the node coordinates into a more user-friendly format
     vertices = node_coords.reshape(-1, 3)
 
@@ -1796,7 +1651,6 @@ def refine_sphere(out_pre, ns, alpha, angle, ext_fem):
     gmsh.write(out_pre + ".stl")
     for e in ext_fem:
         gmsh.write(out_pre + "." + e)
-    return ()
 
 
 def center_3d_dataset(dataset):

@@ -356,8 +356,8 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
     # convert to cylindrics coordinates (Rho Theta Z nodenumb)
     cy_nodesurf = np.array(
         [
-            fp.rho(nodesurf[:, 0], nodesurf[:, 1]),
-            fp.theta(nodesurf[:, 0], nodesurf[:, 1]),
+            np.hypot(nodesurf[:, 0], nodesurf[:, 1]),
+            np.arctan2(nodesurf[:, 0], nodesurf[:, 1]),
             nodesurf[:, 2],
             nodesurf[:, 3],
         ]
@@ -374,7 +374,9 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
-    z = fp.random_surf2(type_sample, m, n, N, M, B, xv, yv, sfrM, sfrN, C1, RMS, out_pre)
+    z = fp.random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS)
+    fp.stat_analysis(z, N, M, C1, B, type_sample, out_pre)
+
     vertices = fp.make_rough(type_sample, z, cy_nodesurf, vertices, 0)
 
     # gets ride of the index column because stl file generator takes only a matrix with 3 columns
@@ -456,7 +458,9 @@ def make_box(
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
-    z = fp.random_surf2(type_sample, m, n, N, M, B, xv, yv, sfrM, sfrN, C1, RMS, out_pre)
+    z = fp.random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS)
+    fp.stat_analysis(z, N, M, C1, B, type_sample, out_pre)
+
     vertices = fp.make_rough(type_sample, z, nodesurf, vertices, 0)
 
     # gets rid of the index column because stl file generator takes only a matrix with 3 columns
@@ -502,11 +506,11 @@ def make_sphere(type_sample, B, C1, N, radius, ns, alpha, raw_stl, out_pre, ext_
     x, y, z, t = fp.coord_sphere(vertices)
     vert_phi_theta = fp.vertex_tp(x, y, t, z)
 
-    thetaa = fp.theta(y, x)
+    theta = np.arctan2(y, x)
     phii = fp.phi(t, z)
 
     # creates the displacement values of the nodes on the surface of the sphere
-    r = fp.rough_matrix_sphere(nbPoint, B, thetaa, phii, vert_phi_theta, r)
+    r = fp.rough_matrix_sphere(nbPoint, B, theta, phii, vert_phi_theta, r)
 
     # creates a new matrix with x, y, z in cartesian coordinates
     C2 = 1.0 / nbPoint / N / 2.0
@@ -601,7 +605,9 @@ def make_poly(
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
-    z = fp.random_surf2(type_sample, m, n, N, M, B, xv, yv, sfrM, sfrN, C1, RMS, out_pre)
+    z = fp.random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS)
+    fp.stat_analysis(z, N, M, C1, B, type_sample, out_pre)
+
     vertices = fp.make_rough(type_sample, z, nodesurf, vertices, angles)
 
     # gets rid of the index column because stl file generator takes only a matrix with 3 columns
