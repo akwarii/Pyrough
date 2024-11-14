@@ -383,7 +383,7 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
     vertices = vertices[:, :3]
 
     # creates an stl file of the cylinder with roughness on the surface
-    fp.stl_file(vertices, faces, out_pre)
+    fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
 
     return vertices, out_pre + ".stl"
@@ -467,7 +467,7 @@ def make_box(
     vertices = vertices[:, :3]
 
     # creates an stl file of the box with roughness on the surface
-    fp.stl_file(vertices, faces, out_pre)
+    fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
     return vertices, out_pre + ".stl"
 
@@ -517,8 +517,9 @@ def make_sphere(type_sample, B, C1, N, radius, ns, alpha, raw_stl, out_pre, ext_
     new_vertex = fp.coord_cart_sphere(C1, C2, r, vertices, t, z, y, x)
 
     # creates an stl file of the sphere with roughness on the surface
-    fp.stl_file(new_vertex, faces, out_pre)
+    fp.write_stl(out_pre + ".stl", new_vertex, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
+    
     return vertices, out_pre + ".stl"
 
 
@@ -615,7 +616,7 @@ def make_poly(
     vertices = fp.align_poly(vertices, angles)
 
     # creates an stl file of the box with roughness on the surface
-    fp.stl_file(vertices, faces, out_pre)
+    fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
 
     return vertices, out_pre + ".stl"
@@ -716,7 +717,7 @@ def make_wulff(
 
     vertices = vertices[:, :3]
 
-    fp.stl_file(vertices, faces, out_pre)
+    fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
 
     return vertices, out_pre + ".stl"
@@ -769,8 +770,7 @@ def make_cube(type_sample, B, C1, RMS, N, M, length, ns, alpha, raw_stl, out_pre
 
     vertices = fp.center_3d_dataset(vertices[:, :3])
 
-    fp.stl_file(vertices, faces, out_pre)
-
+    fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
 
     return (vertices, out_pre + ".stl")

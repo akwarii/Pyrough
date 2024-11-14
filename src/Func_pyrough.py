@@ -17,6 +17,11 @@ from ase.build import bulk
 from wulffpack import SingleCrystal
 
 
+NDArrayDouble = npt.NDArray[np.float64]
+NDArrayInt = npt.NDArray[np.int_]
+
+
+# TODO make a Shape class for mesh generation ?
 def initialize_gmsh_model(name: str) -> None:
     """
     Initializes a gmsh model and sets the terminal verbosity to 0.
@@ -29,7 +34,7 @@ def initialize_gmsh_model(name: str) -> None:
     gmsh.model.add(name)
 
 
-def generate_geo_mesh(dim: int = 2) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int_]]:
+def generate_geo_mesh(dim: int = 2) -> tuple[NDArrayDouble, NDArrayInt]:
     """Generates the mesh current gmsh model and returns the vertices and faces.
 
     :return: vertices and faces of the mesh
@@ -46,7 +51,7 @@ def generate_geo_mesh(dim: int = 2) -> tuple[npt.NDArray[np.float64], npt.NDArra
     return vertices, faces
 
 
-def cylinder(length, r, ns):
+def cylinder(length: float, r: float, ns: float) -> tuple[NDArrayDouble, NDArrayInt]:
     """
     :param length: Length of the cylinder
     :type length: float
@@ -160,7 +165,7 @@ def box(width, length, height, ns):
     return vertices, faces
 
 
-def sphere(r, ns):
+def sphere(r: float, ns: float) -> tuple[NDArrayDouble, NDArrayInt]:
     """
     :param r: Radius of the sphere
     :type r: float
@@ -183,7 +188,9 @@ def sphere(r, ns):
     return vertices, faces
 
 
-def poly(length, base_points, ns):
+def poly(
+    length: float, base_points: list[tuple[float, float]], ns: float
+) -> tuple[NDArrayDouble, NDArrayInt]:
     """
     :param length: Length of the faceted wire
     :type length: float
@@ -196,22 +203,14 @@ def poly(length, base_points, ns):
     """
     initialize_gmsh_model("Wire")
 
-    # Define the base points in gmsh
-    base_gmsh_points = []
-    for point in base_points:
-        base_gmsh_points.append(gmsh.model.geo.addPoint(point[0], point[1], 0, ns))
+    points = [gmsh.model.geo.addPoint(p[0], p[1], 0, ns) for p in base_points]
 
-    # Create lines between base points
-    lines = []
-    for i in range(len(base_gmsh_points) - 1):
-        lines.append(gmsh.model.geo.addLine(base_gmsh_points[i], base_gmsh_points[i + 1]))
-    lines.append(gmsh.model.geo.addLine(base_gmsh_points[-1], base_gmsh_points[0]))
+    lines = [gmsh.model.geo.addLine(points[i], points[i + 1]) for i in range(len(points) - 1)]
+    lines.append(gmsh.model.geo.addLine(points[-1], points[0]))
 
-    # Define the curve loop and surface
     curve_loop = gmsh.model.geo.addCurveLoop(lines)
     surface = gmsh.model.geo.addPlaneSurface([curve_loop])
 
-    # Extrude the surface to create the wire
     gmsh.model.geo.extrude([(2, surface)], 0, 0, length, [length // ns])
 
     gmsh.model.geo.synchronize()
@@ -221,7 +220,9 @@ def poly(length, base_points, ns):
     return vertices, faces
 
 
-def wulff(points, faces, ns):
+def wulff(
+    points: list[list[float]], facets: list[list[int]], ns: float
+) -> tuple[NDArrayDouble, NDArrayInt]:
     """
     :param points: Vertices of Wulff-shape
     :type points: list
@@ -232,20 +233,18 @@ def wulff(points, faces, ns):
 
     :return: vertices and faces of Wulff mesh
     """
-    # Initialize the Gmsh API
     initialize_gmsh_model("MeshFromPointsAndFaces")
 
-    # Add points to the model
     point_tags = [gmsh.model.geo.addPoint(p[0], p[1], p[2], ns) for p in points]
-    # Create surfaces from faces:
-    for face in faces:
+
+    for face in facets:
         line_loops = []
         for i in range(len(face)):
-            start_point = point_tags[int(face[i]) - 1]
-            end_point = point_tags[int(face[(i + 1) % len(face)]) - 1]
-            line = gmsh.model.geo.addLine(start_point, end_point)
-            line_loops.append(line)
-        # Remove the explicit tag to let Gmsh assign it automatically
+            start_point = point_tags[face[i] - 1]
+            end_point = point_tags[face[(i + 1) % len(face)] - 1]
+
+            line_loops.append(gmsh.model.geo.addLine(start_point, end_point))
+
         loop = gmsh.model.geo.addCurveLoop(line_loops)
         gmsh.model.geo.addPlaneSurface([loop])
 
@@ -321,9 +320,6 @@ def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
 
     :return: List of points and faces
     """
-    vertices = []
-    faces = []
-
     if raw_stl == "na":
         print("====== > Creating the Mesh")
         if sample_type == "box" or sample_type == "grain":
@@ -342,10 +338,13 @@ def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
     else:
         mesh = meshio.read(raw_stl)
         vertices, faces = mesh.points, mesh.cells
-        faces = faces[0][1]
-    return (vertices, faces)
+        vertices = np.asarray(vertices)
+        faces = np.asarray(faces[0][1])
+
+    return vertices, faces
 
 
+# TODO merge with read_stl
 def read_stl_wulff(raw_stl, obj_points, obj_faces, ns):
     """
     Reads an input stl file or creates a new one if no input. Wulff case.
@@ -366,21 +365,7 @@ def read_stl_wulff(raw_stl, obj_points, obj_faces, ns):
     else:
         mesh = meshio.read(raw_stl)
         vertices, faces = mesh.vertices, mesh.faces
-    return (vertices, faces)
-
-
-def stl_file(vertices, faces, out_pre):
-    """
-    Creates an stl file from the vertices and faces of the desired object.
-
-    :param vertices: The coordinates obtained from the mesh
-    :type vertices: array
-    :param faces: The faces of the triangles generated from the mesh
-    :type vertices: array
-    :param out_pre: Prefix of the output files
-    :type out_pre: str
-    """
-    write_stl(out_pre + ".stl", vertices, np.array(faces))
+    return vertices, faces
 
 
 def make_obj(
@@ -424,21 +409,22 @@ def make_obj(
     prim = bulk(material, crystalstructure=lattice_structure, a=lattice_parameter)
     particle = SingleCrystal(surface_energies, primitive_structure=prim, natoms=n_at)
     particle.write(out_pre + ".obj")
+
     with open(out_pre + ".obj") as f:
-        list_lines = f.readlines()
-        obj_points = []
-        obj_faces = []
-        for line in list_lines:
-            if "v" in line:
-                splitted_line = line.split()[1:]
-                coord = [float(i) for i in splitted_line]
-                obj_points.append(coord)
-            if "f" in line:
-                splitted_line = line.split()[1:]
-                coord = [float(i) for i in splitted_line]
-                obj_faces.append(coord)
+        lines = f.readlines()
+
+    obj_points = []
+    obj_faces = []
+    for line in lines:
+        parts = line.split()
+        if "v" in line:
+            obj_points.append([float(coord) for coord in parts[1:]])
+        elif "f" in line:
+            obj_faces.append([int(coord) for coord in parts[1:]])
+
     obj_points = np.asarray(obj_points)
     obj_points_f = rotate_obj_wulff(obj_points, orien_x, orien_z)
+
     return obj_points_f, obj_faces
 
 
@@ -474,18 +460,6 @@ def vertex_tp(x, y, t, z):
     :return: An array with angles as elements
     """
     return np.array([np.arctan2(y, x), phi(t, z)]).T
-
-
-def radius(v):
-    """
-    Calculates the vector norm for the axis 1 of the values in the given array.
-
-    :param v: The vertices of the sphere
-    :type v: array
-
-    :return: A vector norm
-    """
-    return np.linalg.norm(v, axis=1)
 
 
 def stat_analysis(z, N, M, C1, B, sample_type, out_pre):
@@ -556,21 +530,6 @@ def stat_analysis(z, N, M, C1, B, sample_type, out_pre):
     print("--------------------------------------------------------")
 
 
-def concatenate_list_data(a_list):
-    """
-    Combines the elements of a list into one element in the form of a string.
-
-    :param a_list: List with elements of type int
-    :type a_list: list
-
-    :return: A string
-    """
-    result = ""
-    for element in a_list:
-        result += str(element)
-    return result
-
-
 def duplicate(side_length, orien, lattice_par):
     """
     Takes in a length and an crystal orientation to calculate the duplication factor for atomsk.
@@ -584,21 +543,19 @@ def duplicate(side_length, orien, lattice_par):
 
     :returns: Duplication factor and string of orientations
     """
-    storage = []
-    for x in orien:
-        squared = x**2
-        storage.append(squared)
-    Total = sum(storage)
-    if Total == 6 or Total == 2:
-        distance = (lattice_par * (math.sqrt(Total))) / 2
-        dup = math.ceil(side_length / distance)
-    else:
-        distance = lattice_par * (math.sqrt(Total))
-        dup = math.ceil(side_length / distance)
-    end_orien = [(concatenate_list_data(orien))]
-    x = "[" + "".join([str(i) for i in end_orien]) + "]"
-    dup = str(dup)
-    return 0.5 * distance, dup, x
+    storage = [x**2 for x in orien]
+    total = sum(storage)
+    
+    distance = lattice_par * (math.sqrt(total))
+    dup = math.ceil(side_length / distance)
+
+    if total == 6 or total == 2:
+        distance /= 2
+        
+    end_orien = "".join(map(str, orien))
+    x = f"[{end_orien}]"
+    
+    return 0.5 * distance, str(dup), x
 
 
 def random_numbers(sfrN, sfrM):
@@ -836,11 +793,15 @@ def coord_cart_sphere(C1, C2, r, vertices, t, z, y, x):
 
     :return: Cartesian coordinates
     """
-    x = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.cos(np.arctan2(x, y))
-    y = (C1 * C2 * r + radius(vertices)) * np.sin(phi(t, z)) * np.sin(np.arctan2(x, y))
-    z = (C1 * C2 * r + radius(vertices)) * np.cos(phi(t, z))
-    new_vertex = np.array([x, y, z]).T
-    return new_vertex
+    radius = np.linalg.norm(vertices, axis=1)
+    phis = phi(t, z)
+    thetas = np.arctan2(x, y)
+
+    x = (C1 * C2 * r + radius) * np.sin(phis) * np.cos(thetas)
+    y = (C1 * C2 * r + radius) * np.sin(phis) * np.sin(thetas)
+    z = (C1 * C2 * r + radius) * np.cos(phis)
+
+    return np.column_stack((x, y, z))
 
 
 def rebox(file_lmp):
@@ -1065,7 +1026,7 @@ def base(radius, nfaces):
             theta_list[i] += 2 * np.pi
     angles = []
     for theta in theta_list[:-1]:
-        points.append([radius * np.cos(theta), radius * np.sin(theta)])
+        points.append((radius * np.cos(theta), radius * np.sin(theta)))
     for i in range(len(points)):
         k = i + 1
         if k == len(points):
