@@ -546,11 +546,11 @@ def duplicate(side_length, orien, lattice_par):
     storage = [x**2 for x in orien]
     total = sum(storage)
     
-    distance = lattice_par * (math.sqrt(total))
-    dup = math.ceil(side_length / distance)
-
+    distance = lattice_par * math.sqrt(total)
     if total == 6 or total == 2:
         distance /= 2
+    
+    dup = math.ceil(side_length / distance)
         
     end_orien = "".join(map(str, orien))
     x = f"[{end_orien}]"
