@@ -15,6 +15,7 @@ import numpy.typing as npt
 import scipy.special as sp
 from ase.build import bulk
 from wulffpack import SingleCrystal
+from scipy.spatial.transform import Rotation as R
 
 
 NDArrayDouble = npt.NDArray[np.float64]
@@ -688,29 +689,15 @@ def remove_duplicates_2d_ordered(data):
     """
     seen = set()
     result = []
+    
     for item in data:
-        # Convert inner list to tuple and check if it's in the seen set
         t_item = tuple(item)
+        
         if t_item not in seen:
             result.append(item)
             seen.add(t_item)
+    
     return result
-
-
-def vectors(N, M):
-    """
-    Creates vector of integers between -N and N. Same for M
-
-    :param N: Scaling cartesian position
-    :type N: int
-    :param M: Scaling cartesian position
-    :type M: int
-
-    :returns: Vectors
-    """
-    sfrN = np.linspace(-N, N, 2 * N + 1)
-    sfrM = np.linspace(-M, M, 2 * M + 1)
-    return sfrN, sfrM
 
 
 def coord_sphere(vertices):
@@ -891,17 +878,16 @@ def rms_calc(Z):
     """
     Calculates the RMS of a height distribution
 
-    :param z: height matrix
-    :type z: array
+    :param Z: height matrix
+    :type Z: array
 
     :return: RMS
     """
-    Z = np.asarray(Z)
-    Z = Z.flatten()
-    return np.sqrt(np.sum(Z * Z) / len(Z))
+    Z = np.asarray(Z).flatten()
+    return np.sqrt(np.mean(Z**2))
 
 
-def random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS):
+def random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS, verbose=True):
     """
     Returns an array with the Z values representing the surface roughness.
 
@@ -928,7 +914,8 @@ def random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS):
 
     :return: Surface roughness
     """
-    print("====== > Creating random rough surface....")
+    if verbose:
+        print("====== > Creating random rough surface....")
 
     Z = 0.0
     for i in range(len(sfrM)):
@@ -1043,7 +1030,7 @@ def base(radius, nfaces):
     return points, angles
 
 
-def cart2cyl(matrix):
+def cart2cyl(coords: NDArrayDouble) -> NDArrayDouble:
     """
     Calculates cylindrical coordinates from cartesian ones.
 
@@ -1052,16 +1039,14 @@ def cart2cyl(matrix):
 
     :return: Cylindrical coordinates
     """
-    cyl_matrix = []
-    for p in matrix:
-        r = np.hypot(p[0], p[1])
-        theta = np.arctan2(p[0], p[1])
-        cyl_matrix.append([r, theta, p[2], p[3]])
-    cyl_matrix = np.asarray(cyl_matrix)
+    x, y, z, _ = coords.T
+    r = np.hypot(x, y)
+    theta = np.arctan2(y, x)
+    cyl_matrix = np.column_stack((r, theta, z, coords[:, 3]))
     return cyl_matrix
 
 
-def cyl2cart(matrix):
+def cyl2cart(coords: NDArrayDouble) -> NDArrayDouble:
     """
     Calculates cartesian coordinates from cylindrical ones.
 
@@ -1070,12 +1055,9 @@ def cyl2cart(matrix):
 
     :return: Cartesian coordinates
     """
-    cart_matrix = []
-    for p in matrix:
-        x = p[0] * np.cos(p[1])
-        y = p[0] * np.sin(p[1])
-        cart_matrix.append([x, y, p[2], p[3]])
-    cart_matrix = np.asarray(cart_matrix)
+    x = coords[:, 0] * np.cos(coords[:, 1])
+    y = coords[:, 0] * np.sin(coords[:, 1])
+    cart_matrix = np.column_stack((x, y, coords[:, 2], coords[:, 3]))
     return cart_matrix
 
 
@@ -1109,15 +1091,14 @@ def faces_normals(obj_points, obj_faces):
         d = -np.dot(n, A)
         # Check if its the external normal
         point = centroid + n
-        if not (segment_intersects_plane(point, A, n[0], n[1], n[2], d)):
+        if not (does_segment_intersect_plane(point, A, n[0], n[1], n[2], d)):
             n = -1 * n
         list_n.append([n[0], n[1], n[2]])
     return list_n
 
 
-def segment_intersects_plane(S, P, a, b, c, d):
+def does_segment_intersect_plane(S, P, a, b, c, d):
     """
-
     :param S: Point defining segment with the origin
     :type S: list
     :param P: Plane normal
@@ -1133,25 +1114,22 @@ def segment_intersects_plane(S, P, a, b, c, d):
 
     :return: Boolean value for plane intersection or not
     """
-    x1, y1, z1 = 0, 0, 0
-    x2, y2, z2 = S[0], S[1], S[2]
-    p1, p2, p3 = P[0], P[1], P[2]
-    if (a * (x2 - x1) + b * (y2 - y1) + c * (z2 - z1)) == 0:
-        if a * x2 + b * y2 + c * z2 + d == 0:
-            return True
-        else:
-            return False
+    x1, y1, z1 = 0.0, 0.0, 0.0
+    x2, y2, z2 = S
+    p1, p2, p3 = P
+    
+    denom = a * (x2 - x1) + b * (y2 - y1) + c * (z2 - z1)
+    if denom == 0.0 and a * x2 + b * y2 + c * z2 + d == 0:
+        return True
     else:
-        t = (a * (p1 - x1) + b * (p2 - y1) + c * (p3 - z1)) / (
-            a * (x2 - x1) + b * (y2 - y1) + c * (z2 - z1)
-        )
+        t = (a * (p1 - x1) + b * (p2 - y1) + c * (p3 - z1)) / denom
         if (t >= 0) and (t <= 1):
             return True
-        else:
-            return False
+
+    return False
 
 
-def node_corner(nodesurf):
+def identify_edge_and_corner_nodes(nodesurf):
     """
     From surface nodes, finds all nodes located on edges and corners.
 
@@ -1160,16 +1138,14 @@ def node_corner(nodesurf):
 
     :return: List of nodes located on edges and list of nodes located on corners
     """
-    all_points = []
-    for f in nodesurf:
-        for i in f:
-            all_points.append(i)
-    matrix = np.asarray(all_points)
-    list_index = matrix[:, 3]
-    value, counts = np.unique(list_index, return_counts=True)
-    node_edge = np.where(counts == 2)[0]
-    node_corner = np.where(counts >= 3)[0]
-    return (node_edge, node_corner)
+    all_points = np.concatenate(nodesurf)
+    list_index = all_points[:, 3]
+    
+    unique, counts = np.unique(list_index, return_counts=True)
+    node_edge = unique[counts == 2]
+    node_corner = unique[counts >= 3]
+    
+    return node_edge, node_corner
 
 
 def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corner, list_n):
@@ -1199,7 +1175,7 @@ def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corne
 
     :return: Rough Wulff sample
     """
-    sfrN, sfrM = vectors(N, M)
+    sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
     for k in range(len(nodesurf)):
         if k == 0:
             print(
@@ -1213,13 +1189,13 @@ def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corne
             print(f"{k + 1}, ", end=" ", flush=True)
         surf = np.array(nodesurf[k])
         n1 = np.array(list_n[k])
-        surf_rot = rot(surf, n1)
+        surf_rot = align_surface_normal_with_z(surf, n1)
         surf_norm = normalize(surf_rot)
         xv = surf_norm[:, 0]
         yv = surf_norm[:, 1]
         m, n = random_numbers(sfrN, sfrM)
 
-        z = random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS)
+        z = random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS, verbose=False)
 
         z = z + abs(np.min(z))
         for i in range(len(surf)):
@@ -1238,7 +1214,7 @@ def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corne
     return vertices
 
 
-def rot(surf, n1):
+def align_surface_normal_with_z(surf, n1):
     """
     Rotates a surface oriented along n1 axis in order to be oriented along z-axis.
 
@@ -1251,45 +1227,17 @@ def rot(surf, n1):
     """
     n2 = np.array([0, 0, 1])
     n = np.cross(n1, n2)
-    if n[0] == 0 and n[1] == 0 and n[2] == 0:
+    
+    if np.all(n == 0):
         n = n2
+        
     n = n / np.linalg.norm(n)
     theta = np.arccos(np.dot(n1, n2))
-    R = rot_matrix(n, theta)
-    surf_rot = []
-    for p in surf:
-        point = p[:3]
-        point_rot = np.dot(R, point)
-        surf_rot.append([point_rot[0], point_rot[1], point_rot[2], p[3]])
-    surf_rot = np.asarray(surf_rot)
+    rot = R.from_rotvec(theta * np.array(n))
+    
+    surf_rot = np.array([np.append(rot.apply(p[:3]), p[3]) for p in surf])
+    
     return surf_rot
-
-
-def rot_matrix(n, theta):
-    """
-    Generates the rotation matrix. Initial orientation is n, and the angle of rotation is theta.
-    Final orientation is the z-axis.
-
-    :param n: Initial orientation
-    :type n: list
-    :param theta: Rotation angle
-    :type theta: float
-
-    :return: Rotation matrix
-    """
-    c = np.cos(theta)
-    s = np.sin(theta)
-    R11 = n[0] * n[0] * (1 - c) + c
-    R12 = n[0] * n[1] * (1 - c) - n[2] * s
-    R13 = n[0] * n[2] * (1 - c) + n[1] * s
-    R21 = n[0] * n[1] * (1 - c) + n[2] * s
-    R22 = n[1] * n[1] * (1 - c) + c
-    R23 = n[1] * n[2] * (1 - c) - n[0] * s
-    R31 = n[0] * n[2] * (1 - c) - n[1] * s
-    R32 = n[1] * n[2] * (1 - c) + n[0] * s
-    R33 = n[2] * n[2] * (1 - c) + c
-    R = np.array([[R11, R12, R13], [R21, R22, R23], [R31, R32, R33]])
-    return R
 
 
 def normalize(surf):
@@ -1301,18 +1249,11 @@ def normalize(surf):
 
     :return: Normalized surface
     """
-    X = surf[:, 0]
-    Y = surf[:, 1]
-    Z = surf[:, 2]
-    T = surf[:, 3]
-    x_max = np.max(abs(X))
-    y_max = np.max(abs(Y))
-    Xf = (X / x_max + 1) / 2
-    Yf = (Y / y_max + 1) / 2
-    Zf = 0 * Z
-    surf_norm = [[Xf[i], Yf[i], Zf[i], T[i]] for i in range(len(Xf))]
-    surf_norm = np.asarray(surf_norm)
-    return surf_norm
+    X, Y, Z, T = surf.T
+    Xf = (X / np.max(np.abs(X)) + 1) / 2
+    Yf = (Y / np.max(np.abs(Y)) + 1) / 2
+    Zf = np.zeros_like(Z)
+    return np.column_stack((Xf, Yf, Zf, T))
 
 
 def cube_faces(length):
@@ -1324,7 +1265,7 @@ def cube_faces(length):
 
     :return: Points and faces of the cube
     """
-    obj_points = [
+    vertex_coords = np.array([
         [0, 0, 0],
         [length, 0, 0],
         [0, length, 0],
@@ -1333,18 +1274,16 @@ def cube_faces(length):
         [length, 0, length],
         [0, length, length],
         [length, length, length],
-    ]
-    obj_faces = [
+    ])
+    face_indices = np.array([
         [1, 2, 3, 4],
         [1, 2, 5, 6],
         [2, 4, 6, 8],
         [4, 8, 3, 7],
         [1, 5, 3, 7],
         [5, 6, 7, 8],
-    ]
-    obj_faces = np.asarray(obj_faces)
-    obj_points = np.asarray(obj_points)
-    return obj_points, obj_faces
+    ])
+    return vertex_coords, face_indices
 
 
 def rotate_obj_wulff(obj_points, orien_x, orien_z):
@@ -1364,14 +1303,13 @@ def rotate_obj_wulff(obj_points, orien_x, orien_z):
         n = n2
     n = n / np.linalg.norm(n)
     theta = np.arccos(np.dot(orien_z, n2) / (np.linalg.norm(orien_z) * np.linalg.norm(n2)))
-    R = rot_matrix(n, theta)
+    rot = R.from_rotvec(theta * np.array(n))
     surf_rot = []
     for p in obj_points:
-        point_rot = np.dot(R, p)
+        point_rot = rot.apply(p)
         surf_rot.append([point_rot[0], point_rot[1], point_rot[2]])
     surf_rot = np.asarray(surf_rot)
-    x_axis = np.array([1, 0, 0])
-    x_rot = np.dot(R, x_axis)
+    x_rot = rot.apply([1, 0, 0])
     theta_x = np.arccos(np.dot(x_rot, orien_x) / (np.linalg.norm(x_rot) * np.linalg.norm(orien_x)))
     R_x = np.array(
         [
@@ -1386,29 +1324,6 @@ def rotate_obj_wulff(obj_points, orien_x, orien_z):
         points_f.append([rot_f[0], rot_f[1], rot_f[2]])
     obj_points_f = np.asarray(points_f)
     return obj_points_f
-
-
-def align_poly(vertices, angles):
-    """
-    Aligns the first facet with x-axis
-
-    :param vertices: List of nodes
-    :type vertices: array
-    :param angles: List of angles
-    :type angles: array
-
-    :return: Rotated nodes
-    """
-    theta = angles[0]
-    R = np.array(
-        [
-            [np.cos(theta), -np.sin(theta), 0],
-            [np.sin(theta), np.cos(theta), 0],
-            [0, 0, 1],
-        ]
-    )
-    rotated_points = np.dot(vertices, R)
-    return rotated_points
 
 
 def refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem) -> None:
@@ -1435,10 +1350,10 @@ def refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem) -> None:
     refinement_strategy_map = {
         "box": refine_box,
         "grain": refine_box,
-        "wire": refine_wire,  # TODO currently broken ?
-        "poly": refine_wire,  # TODO currently broken ?
-        "sphere": refine_sphere,  # TODO currently broken ?
-        "wulff": refine_sphere,  # TODO currently broken ?
+        "wire": refine_wire,
+        "poly": refine_wire,
+        "sphere": refine_sphere,
+        "wulff": refine_sphere,
         "cube": refine_sphere,
     }
     refinement_angle_map = {
@@ -1612,29 +1527,3 @@ def refine_sphere(out_pre, ns, alpha, angle, ext_fem):
     gmsh.write(out_pre + ".stl")
     for e in ext_fem:
         gmsh.write(out_pre + "." + e)
-
-
-def center_3d_dataset(dataset):
-    """
-
-    :param dataset: Array of positions
-    :type dataset: array
-
-    :return: Centered position dataset
-    """
-    # Calculate the center of mass (centroid)
-    total_points = len(dataset)
-    sum_x = sum(point[0] for point in dataset)
-    sum_y = sum(point[1] for point in dataset)
-    sum_z = sum(point[2] for point in dataset)
-
-    center_x = sum_x / total_points
-    center_y = sum_y / total_points
-    center_z = sum_z / total_points
-
-    # Translate the dataset to the origin
-    centered_dataset = np.array(
-        [[point[0] - center_x, point[1] - center_y, point[2] - center_z] for point in dataset]
-    )
-
-    return centered_dataset

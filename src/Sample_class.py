@@ -16,6 +16,7 @@ import subprocess
 import numpy as np
 
 from src import Func_pyrough as fp
+from scipy.spatial.transform import Rotation as R
 
 
 class Sample:
@@ -369,7 +370,7 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
     xv = (cy_nodesurf[:, 1] / max(cy_nodesurf[:, 1]) + 1) / 2
     yv = (cy_nodesurf[:, 2] / max(cy_nodesurf[:, 2]) + 1) / 2
 
-    sfrN, sfrM = fp.vectors(N, M)  # creating vectors for M and N
+    sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
     m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
@@ -453,7 +454,7 @@ def make_box(
     xv = nodesurf[:, 0] / max(nodesurf[:, 0])
     yv = nodesurf[:, 1] / max(nodesurf[:, 1])
 
-    sfrN, sfrM = fp.vectors(N, M)  # creating vectors for M and N
+    sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
     m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
@@ -601,7 +602,7 @@ def make_poly(
 
     xv, yv = np.meshgrid(xv, yv)
 
-    sfrN, sfrM = fp.vectors(N, M)  # creating vectors for M and N
+    sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
     m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
@@ -612,8 +613,9 @@ def make_poly(
     vertices = fp.make_rough(type_sample, z, nodesurf, vertices, angles)
 
     # gets rid of the index column because stl file generator takes only a matrix with 3 columns
+    rot = R.from_euler('z', angles[0])
     vertices = vertices[:, :3]
-    vertices = fp.align_poly(vertices, angles)
+    vertices = rot.apply(vertices)
 
     # creates an stl file of the box with roughness on the surface
     fp.write_stl(out_pre + ".stl", vertices, faces)
@@ -709,7 +711,7 @@ def make_wulff(
     vertices, nodenumber = fp.node_indexing(vertices)
     nodesurf = fp.node_surface(type_sample, vertices, nodenumber, obj_points, obj_faces)
 
-    node_edge, node_corner = fp.node_corner(nodesurf)
+    node_edge, node_corner = fp.identify_edge_and_corner_nodes(nodesurf)
 
     vertices = fp.make_rough_wulff(
         vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corner, list_n
@@ -762,13 +764,14 @@ def make_cube(type_sample, B, C1, RMS, N, M, length, ns, alpha, raw_stl, out_pre
     vertices, nodenumber = fp.node_indexing(vertices)
 
     nodesurf = fp.node_surface(type_sample, vertices, nodenumber, obj_points, obj_faces)
-    node_edge, node_corner = fp.node_corner(nodesurf)
+    node_edge, node_corner = fp.identify_edge_and_corner_nodes(nodesurf)
 
     vertices = fp.make_rough_wulff(
         vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corner, list_n
     )
 
-    vertices = fp.center_3d_dataset(vertices[:, :3])
+    vertices = vertices[:, :3]
+    vertices -= np.mean(vertices, axis=0) # center the cube
 
     fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
