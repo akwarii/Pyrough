@@ -344,26 +344,16 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
 
     :return: List of nodes and STL file name
     """
-    vertices, faces = fp.read_stl(type_sample, raw_stl, 0, length, 0, radius, ns, 0)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, length=length, radius=radius, ns=ns)
 
-    # creates a column that has an assigned index number for each row in vertices; returns vertices
-    # with the addition of this new column and also returns the nodenumbers which is an array file
-    # from 0 - length of the vertices
-    vertices, nodenumber = fp.node_indexing(vertices)
+    # adds a column of node numbers to the vertices array
+    vertices = fp.node_indexing(vertices)
 
     # nodes at the surface of the object. These nodes will have the surface roughness applied to it
-    nodesurf = fp.node_surface(type_sample, vertices, nodenumber, 0, 0)
+    nodesurf = fp.node_surface(type_sample, vertices, 0, 0)
 
     # convert to cylindrics coordinates (Rho Theta Z nodenumb)
-    cy_nodesurf = np.array(
-        [
-            np.hypot(nodesurf[:, 0], nodesurf[:, 1]),
-            np.arctan2(nodesurf[:, 0], nodesurf[:, 1]),
-            nodesurf[:, 2],
-            nodesurf[:, 3],
-        ]
-    ).T
-
+    cy_nodesurf = fp.cart2cyl(nodesurf)
     cy_nodesurf = cy_nodesurf[np.lexsort((cy_nodesurf[:, 1], cy_nodesurf[:, 2]))]
 
     # creating X and Y vector (Connection matrix size) going to make one line code
@@ -371,7 +361,7 @@ def make_wire(type_sample, B, C1, RMS, N, M, radius, length, ns, alpha, raw_stl,
     yv = (cy_nodesurf[:, 2] / max(cy_nodesurf[:, 2]) + 1) / 2
 
     sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
-    m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
+    m, n = fp.get_random_matrices(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
@@ -440,22 +430,20 @@ def make_box(
 
     :return: List of nodes and STL file name
     """
-    vertices, faces = fp.read_stl(type_sample, raw_stl, width, length, height, 0, ns, 0)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, width=width, length=length, height=height, ns=ns)
 
-    # creates a column that has an assigned index number for each row in vertices; returns vertices
-    # with the addition of this new column and also returns the nodenumbers which is an array
-    # filled from 0 - length of the vertices
-    vertices, nodenumber = fp.node_indexing(vertices)
+    # adds a column of node numbers to the vertices array
+    vertices = fp.node_indexing(vertices)
 
     # nodes at the surface of the object. These nodes will have the surface roughness applied to it
-    nodesurf = fp.node_surface(type_sample, vertices, nodenumber, 0, 0)
+    nodesurf = fp.node_surface(type_sample, vertices, 0, 0)
     nodesurf = nodesurf[np.lexsort((nodesurf[:, 0], nodesurf[:, 1]))]
 
     xv = nodesurf[:, 0] / max(nodesurf[:, 0])
     yv = nodesurf[:, 1] / max(nodesurf[:, 1])
 
     sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
-    m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
+    m, n = fp.get_random_matrices(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
@@ -500,7 +488,7 @@ def make_sphere(type_sample, B, C1, N, radius, ns, alpha, raw_stl, out_pre, ext_
 
     :return: List of nodes and STL file name
     """
-    vertices, faces = fp.read_stl(type_sample, raw_stl, 0, 0, 0, radius, ns, 0)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, radius=radius, ns=ns)
     nbPoint = len(vertices)
 
     r = np.zeros(nbPoint)
@@ -520,7 +508,7 @@ def make_sphere(type_sample, B, C1, N, radius, ns, alpha, raw_stl, out_pre, ext_
     # creates an stl file of the sphere with roughness on the surface
     fp.write_stl(out_pre + ".stl", new_vertex, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)
-    
+
     return vertices, out_pre + ".stl"
 
 
@@ -576,18 +564,15 @@ def make_poly(
     """
     points, angles = fp.base(radius, nfaces)
 
-    vertices, faces = fp.read_stl(type_sample, raw_stl, 0, length, 0, radius, ns, points)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, length=length, radius=radius, ns=ns, points=points)
 
-    # creates a column that has an assigned index number for each row in vertices; returns vertices
-    # with the addition of this new column and also returns the nodenumbers which is an array
-    # filled from 0 - length of the vertices
-    vertices, nodenumber = fp.node_indexing(vertices)
+    # adds a column of node numbers to the vertices array
+    vertices = fp.node_indexing(vertices)
 
     # nodes at the surface of the object. These nodes will have the surface roughness applied to it
     nodesurf = fp.node_surface(
         type_sample,
         vertices,
-        nodenumber,
         points,
         0,
     )
@@ -603,7 +588,7 @@ def make_poly(
     xv, yv = np.meshgrid(xv, yv)
 
     sfrN, sfrM = np.linspace(-N, N, 2 * N + 1), np.linspace(-M, M, 2 * M + 1)
-    m, n = fp.random_numbers(sfrN, sfrM)  # normal gaussian for the amplitude
+    m, n = fp.get_random_matrices(sfrN, sfrM)  # normal gaussian for the amplitude
 
     # Returns an array with the Z values that will replace the previous z values in the vertices
     # array these represent the rougness on the surface
@@ -613,7 +598,7 @@ def make_poly(
     vertices = fp.make_rough(type_sample, z, nodesurf, vertices, angles)
 
     # gets rid of the index column because stl file generator takes only a matrix with 3 columns
-    rot = R.from_euler('z', angles[0])
+    rot = R.from_euler("z", angles[0])
     vertices = vertices[:, :3]
     vertices = rot.apply(vertices)
 
@@ -701,15 +686,13 @@ def make_wulff(
         orien_z,
         out_pre,
     )
-    vertices, faces = fp.read_stl_wulff(raw_stl, obj_points, obj_faces, ns)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, points=obj_points, faces=obj_faces, ns=ns)
     subprocess.call(["rm", out_pre + ".obj"])
     list_n = fp.faces_normals(obj_points, obj_faces)
 
-    # creates a column that has an assigned index number for each row in vertices; returns vertices
-    # with the addition of this new column and also returns the nodenumbers which is an array
-    # filled from 0 - length of the vertices
-    vertices, nodenumber = fp.node_indexing(vertices)
-    nodesurf = fp.node_surface(type_sample, vertices, nodenumber, obj_points, obj_faces)
+    # adds a column of node numbers to the vertices array
+    vertices = fp.node_indexing(vertices)
+    nodesurf = fp.node_surface(type_sample, vertices, obj_points, obj_faces)
 
     node_edge, node_corner = fp.identify_edge_and_corner_nodes(nodesurf)
 
@@ -760,10 +743,10 @@ def make_cube(type_sample, B, C1, RMS, N, M, length, ns, alpha, raw_stl, out_pre
     obj_points, obj_faces = fp.cube_faces(length)
     list_n = fp.faces_normals(obj_points, obj_faces)
 
-    vertices, faces = fp.read_stl(type_sample, raw_stl, 0, length, 0, 0, ns, 0)
-    vertices, nodenumber = fp.node_indexing(vertices)
+    vertices, faces = fp.read_stl(type_sample, raw_stl, length=length, ns=ns)
+    vertices = fp.node_indexing(vertices)
 
-    nodesurf = fp.node_surface(type_sample, vertices, nodenumber, obj_points, obj_faces)
+    nodesurf = fp.node_surface(type_sample, vertices, obj_points, obj_faces)
     node_edge, node_corner = fp.identify_edge_and_corner_nodes(nodesurf)
 
     vertices = fp.make_rough_wulff(
@@ -771,7 +754,7 @@ def make_cube(type_sample, B, C1, RMS, N, M, length, ns, alpha, raw_stl, out_pre
     )
 
     vertices = vertices[:, :3]
-    vertices -= np.mean(vertices, axis=0) # center the cube
+    vertices -= np.mean(vertices, axis=0)  # center the cube
 
     fp.write_stl(out_pre + ".stl", vertices, faces)
     fp.refine_3Dmesh(type_sample, out_pre, ns, alpha, ext_fem)

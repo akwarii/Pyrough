@@ -110,50 +110,35 @@ def box(width, length, height, ns):
     initialize_gmsh_model("Box")
 
     # Define the box's vertices
-    p1 = gmsh.model.geo.addPoint(0, 0, 0)
-    p2 = gmsh.model.geo.addPoint(length, 0, 0)
-    p3 = gmsh.model.geo.addPoint(length, width, 0)
-    p4 = gmsh.model.geo.addPoint(0, width, 0)
-    p5 = gmsh.model.geo.addPoint(0, 0, height)
-    p6 = gmsh.model.geo.addPoint(length, 0, height)
-    p7 = gmsh.model.geo.addPoint(length, width, height)
-    p8 = gmsh.model.geo.addPoint(0, width, height)
+    coords = [
+        (0, 0, 0),
+        (length, 0, 0),
+        (length, width, 0),
+        (0, width, 0),
+        (0, 0, height),
+        (length, 0, height),
+        (length, width, height),
+        (0, width, height),
+    ]
+    points = [gmsh.model.geo.addPoint(*coord) for coord in coords]
+
     # Connect the points to form the edges
-    lines = [
-        gmsh.model.geo.addLine(p1, p2),
-        gmsh.model.geo.addLine(p2, p3),
-        gmsh.model.geo.addLine(p3, p4),
-        gmsh.model.geo.addLine(p4, p1),
-        gmsh.model.geo.addLine(p5, p6),
-        gmsh.model.geo.addLine(p6, p7),
-        gmsh.model.geo.addLine(p7, p8),
-        gmsh.model.geo.addLine(p8, p5),
-        gmsh.model.geo.addLine(p1, p5),
-        gmsh.model.geo.addLine(p2, p6),
-        gmsh.model.geo.addLine(p3, p7),
-        gmsh.model.geo.addLine(p4, p8),
-    ]
+    lines = [gmsh.model.geo.addLine(points[i], points[(i + 1) % 4]) for i in range(4)]
+    lines += [gmsh.model.geo.addLine(points[i], points[(i + 1) % 4 + 4]) for i in range(4, 8)]
+    lines += [gmsh.model.geo.addLine(points[i], points[i + 4]) for i in range(4)]
+
     # Connect the edges to form the faces
-    faces = [
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([lines[0], lines[1], lines[2], lines[3]])]
-        ),
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([lines[4], lines[5], lines[6], lines[7]])]
-        ),
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([lines[0], lines[9], -lines[4], -lines[8]])]
-        ),
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([-lines[2], lines[10], lines[6], -lines[11]])]
-        ),
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([lines[1], lines[10], -lines[5], -lines[9]])]
-        ),
-        gmsh.model.geo.addPlaneSurface(
-            [gmsh.model.geo.addCurveLoop([-lines[3], lines[11], lines[7], -lines[8]])]
-        ),
+    curves_lines = [
+        [lines[0], lines[1], lines[2], lines[3]],
+        [lines[4], lines[5], lines[6], lines[7]],
+        [lines[0], lines[9], -lines[4], -lines[8]],
+        [-lines[2], lines[10], lines[6], -lines[11]],
+        [lines[1], lines[10], -lines[5], -lines[9]],
+        [-lines[3], lines[11], lines[7], -lines[8]],
     ]
+    loops = [gmsh.model.geo.addCurveLoop(lines) for lines in curves_lines]
+    faces = [gmsh.model.geo.addPlaneSurface([loop]) for loop in loops]
+
     # Define a uniform mesh size
     f = gmsh.model.mesh.field.add("MathEval")
     gmsh.model.mesh.field.setString(f, "F", str(ns))
@@ -267,20 +252,18 @@ def cube(length, ns):
     """
     initialize_gmsh_model("Cube")
 
-    # Add points for the base square
-    p1 = gmsh.model.geo.addPoint(0, 0, 0)
-    p2 = gmsh.model.geo.addPoint(length, 0, 0)
-    p3 = gmsh.model.geo.addPoint(length, length, 0)
-    p4 = gmsh.model.geo.addPoint(0, length, 0)
-
-    # Connect the points to form the base square
-    l1 = gmsh.model.geo.addLine(p1, p2)
-    l2 = gmsh.model.geo.addLine(p2, p3)
-    l3 = gmsh.model.geo.addLine(p3, p4)
-    l4 = gmsh.model.geo.addLine(p4, p1)
+    # Add points for the base square and connect them to form lines
+    # Define the base square's vertices
+    points = [
+        gmsh.model.geo.addPoint(0, 0, 0),
+        gmsh.model.geo.addPoint(length, 0, 0),
+        gmsh.model.geo.addPoint(length, length, 0),
+        gmsh.model.geo.addPoint(0, length, 0),
+    ]
+    lines = [gmsh.model.geo.addLine(points[i], points[(i + 1) % 4]) for i in range(4)]
 
     # Create a surface from the base square
-    base_loop = gmsh.model.geo.addCurveLoop([l1, l2, l3, l4])
+    base_loop = gmsh.model.geo.addCurveLoop(lines)
     base_surface = gmsh.model.geo.addPlaneSurface([base_loop])
 
     # Extrude the base surface to get the cube
@@ -298,7 +281,17 @@ def cube(length, ns):
     return vertices, faces
 
 
-def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
+def read_stl(
+    sample_type: str,
+    raw_stl: str,
+    width: float | None = None,
+    length: float | None = None,
+    height: float | None = None,
+    radius: float | None = None,
+    ns: float | None = None,
+    points: list[tuple[float, float]] | None = None,
+    faces: NDArrayInt | None = None,
+):
     """
     Reads an input stl file or creates a new one if no input
 
@@ -318,54 +311,37 @@ def read_stl(sample_type, raw_stl, width, length, height, radius, ns, points):
     :type ns: int
     :param points: List of points constituting the base (in case of faceted wire)
     :type points: list
+    :param faces: List of faces (in case of Wulff shape)
+    :type faces: array
 
     :return: List of points and faces
     """
     if raw_stl == "na":
         print("====== > Creating the Mesh")
-        if sample_type == "box" or sample_type == "grain":
-            vertices, faces = box(width, length, height, ns)
-        elif sample_type == "wire":
-            vertices, faces = cylinder(length, radius, ns)
-        elif sample_type == "sphere":
-            vertices, faces = sphere(radius, ns)
-        elif sample_type == "poly":
-            vertices, faces = poly(length, points, ns)
-        elif sample_type == "cube":
-            vertices, faces = cube(length, ns)
-        else:
+        mesh_generator = {
+            "box": lambda: box(width, length, height, ns),
+            "grain": lambda: box(width, length, height, ns),
+            "wire": lambda: cylinder(length, radius, ns),
+            "sphere": lambda: sphere(radius, ns),
+            "poly": lambda: poly(length, points, ns),
+            "cube": lambda: cube(length, ns),
+            "wulff": lambda: wulff(points, faces, ns),
+        }
+
+        if sample_type not in mesh_generator:
             raise ValueError("Invalid sample type")
+
+        vertices, faces = mesh_generator[sample_type]()
         print("====== > Done creating the Mesh")
     else:
         mesh = meshio.read(raw_stl)
-        vertices, faces = mesh.points, mesh.cells
-        vertices = np.asarray(vertices)
-        faces = np.asarray(faces[0][1])
+        if sample_type == "wulff":
+            vertices, faces = mesh.vertices, mesh.faces
+        else:
+            vertices, faces = mesh.points, mesh.cells
+            vertices = np.asarray(vertices)
+            faces = np.asarray(faces[0][1])  # type: ignore
 
-    return vertices, faces
-
-
-# TODO merge with read_stl
-def read_stl_wulff(raw_stl, obj_points, obj_faces, ns):
-    """
-    Reads an input stl file or creates a new one if no input. Wulff case.
-
-    :param raw_stl: Name of the input stl file
-    :type raw_stl: str
-    :param obj_points: List of points from OBJ file
-    :type obj_points: list
-    :param obj_faces: List of faces from OBJ file
-    :type obj_faces: list
-    :param ns: Mesh size
-    :type ns: float
-
-    :returns: List of points and faces
-    """
-    if raw_stl == "na":
-        vertices, faces = wulff(obj_points, obj_faces, ns)
-    else:
-        mesh = meshio.read(raw_stl)
-        vertices, faces = mesh.vertices, mesh.faces
     return vertices, faces
 
 
@@ -487,38 +463,25 @@ def stat_analysis(z, N, M, C1, B, sample_type, out_pre):
     nu_points = len(z_an)
     mean = np.mean(z_an)
     stand = np.std(z_an)
-    rms = np.sqrt(np.sum(np.square(z_an)) / len(z_an))
-    skewness = np.sum(np.power((z_an - np.mean(z_an)), 3) / len(z_an)) / np.power(np.std(z_an), 3)
-    kurtosis = np.sum(np.power((z_an - np.mean(z_an)), 4) / len(z_an)) / np.power(np.std(z_an), 4)
+    rms = np.sqrt(np.mean(np.square(z_an)))
+    skewness = np.mean((z_an - mean) ** 3) / stand**3
+    kurtosis = np.mean((z_an - mean) ** 4) / stand**4
 
-    stats = [
-        N,
-        M,
-        C1,
-        round(0.5 * B - 1, 2),
-        nu_points,
-        mean,
-        stand,
-        rms,
-        skewness,
-        kurtosis,
-    ]
-    stats = list(map(str, stats))
     stats = [
         sample_type,
-        "N = " + stats[0],
-        "M = " + stats[1],
-        "C1 = " + stats[2],
-        "eta = " + stats[3],
-        "No. points = " + stats[4],
-        "Mean_Value = " + stats[5],
-        "Stand_dev = " + stats[6],
-        "RMS = " + stats[7],
-        "Skewness = " + stats[8],
-        "Kurtosis = " + stats[9],
+        f"N = {N}",
+        f"M = {M}",
+        f"C1 = {C1}",
+        f"eta = {round(0.5 * B - 1, 2)}",
+        f"No. points = {nu_points}",
+        f"Mean_Value = {mean}",
+        f"Stand_dev = {stand}",
+        f"RMS = {rms}",
+        f"Skewness = {skewness}",
+        f"Kurtosis = {kurtosis}",
     ]
 
-    np.savetxt(out_pre + "_stat.txt", stats, fmt="%s")
+    np.savetxt(f"{out_pre}_stat.txt", stats, fmt="%s")
     print("")
     print("------------ Random Surface Parameters-----------------")
     print(f"         N = {N}  M = {M}  C1 = {C1}  eta = {round(0.5 * B - 1, 2)}")
@@ -546,20 +509,20 @@ def duplicate(side_length, orien, lattice_par):
     """
     storage = [x**2 for x in orien]
     total = sum(storage)
-    
+
     distance = lattice_par * math.sqrt(total)
     if total == 6 or total == 2:
         distance /= 2
-    
+
     dup = math.ceil(side_length / distance)
-        
+
     end_orien = "".join(map(str, orien))
     x = f"[{end_orien}]"
-    
+
     return 0.5 * distance, str(dup), x
 
 
-def random_numbers(sfrN, sfrM):
+def get_random_matrices(sfrN, sfrM):
     """
     Generates the G and U matrices for the mathematical formulation of rough surfaces.
 
@@ -570,8 +533,8 @@ def random_numbers(sfrN, sfrM):
 
     :returns: G and U matrices
     """
-    m = 0 + 1 * np.random.randn(len(sfrM), len(sfrN))  # Gaussian distributed
-    n = -np.pi / 2 + np.pi * np.random.rand(len(sfrM), len(sfrN))  # Uniform distributed
+    m = np.random.randn(len(sfrM), len(sfrN))
+    n = np.random.uniform(-np.pi / 2, np.pi / 2, (len(sfrM), len(sfrN)))
     return m, n
 
 
@@ -585,12 +548,12 @@ def node_indexing(vertices):
 
     :returns: Numbered vertices and raw numbers column.
     """
-    nodenumber = range(0, len(vertices))
+    nodenumber = np.arange(0, len(vertices))
     vertices = np.insert(vertices, 3, nodenumber, 1)
-    return vertices, nodenumber
+    return vertices
 
 
-def node_surface(sample_type, vertices, nodenumber, points, faces):
+def node_surface(sample_type, vertices, points, faces):
     """
     Finds the nodes at the surface of the object. These nodes will have the surface roughness
     applied to it.
@@ -599,8 +562,6 @@ def node_surface(sample_type, vertices, nodenumber, points, faces):
     :type sample_type: str
     :param vertices: List of nodes
     :type vertices: array
-    :param nodenumber: Number of the corresponding node
-    :type nodenumber: array
     :param points : Polygon shape (Faceted wire case)
     :type points: array
     :param faces: Facets list (Wulff case)
@@ -608,75 +569,55 @@ def node_surface(sample_type, vertices, nodenumber, points, faces):
 
     :return: Surface nodes
     """
-    stay = []
     if sample_type == "wire":
-        max_height = max(vertices[:, 1])
-        for x in range(0, len(vertices)):
-            if np.hypot(vertices[x, 0], vertices[x, 1]) > (max_height - 0.1):
-                stay.append(x)
-        no_need = np.delete(nodenumber, stay)  # delete from nodenumbers the ones in the surface
-        nodesurf = np.delete(vertices, no_need, 0)
-        return nodesurf
+        max_height = np.max(vertices[:, 1])
+        radius = np.hypot(vertices[:, 0], vertices[:, 1])
+        nodesurf = vertices[radius > (max_height - 0.1)]
 
     elif sample_type == "box" or sample_type == "grain":
-        eps = 0.000001
-        max_height = max(vertices[:, 2])
-        for index in range(0, len(vertices)):
-            if abs(vertices[index][2] - max_height) <= eps:
-                stay.append(index)
-        no_need = np.delete(nodenumber, stay)  # delete from nodenumbers the ones in the surface
-        nodesurf = np.delete(vertices, no_need, 0)
-        return nodesurf
+        max_height = np.max(vertices[:, 2])
+        mask = np.isclose(vertices[:, 2], max_height, atol=1e-6)
+        nodesurf = vertices[mask]
 
     elif sample_type == "poly":
-        eps = 0.0001
         face = []
-        for i in range(len(points)):
-            k = i + 1
-            if k == len(points):
-                k = 0
-            p1 = points[i]
-            p2 = points[k]
-            if p2[0] - p1[0] >= -eps and p2[0] - p1[0] <= eps:
-                K = p2[0]
-                for verti in vertices:
-                    if verti[0] >= K - eps and verti[0] <= K + eps:
-                        face = np.append(face, verti, axis=0)
-            else:
-                A = (p2[1] - p1[1]) / (p2[0] - p1[0])
-                B = p2[1] - A * p2[0]
-                for verti in vertices:
-                    if A * verti[0] + B >= verti[1] - eps and A * verti[0] + B <= verti[1] + eps:
-                        face = np.append(face, verti, axis=0)
-        n_faces = len(face)
-        nodesurf = np.reshape(face, [int(n_faces / 4), 4])
-        return np.array(remove_duplicates_2d_ordered(nodesurf))
+        for p1, p2 in zip(points, np.roll(points, -1, axis=0)):
+            for vertex in vertices:
+                if np.isclose(p2[0], p1[0], atol=1e-4):
+                    if np.isclose(vertex[0], p2[0], atol=1e-4):
+                        face = np.append(face, vertex, axis=0)
+                else:
+                    a = (p2[1] - p1[1]) / (p2[0] - p1[0])
+                    b = p2[1] - a * p2[0]
+                    if np.isclose(vertex[1], a * vertex[0] + b, atol=1e-4):
+                        face = np.append(face, vertex, axis=0)
+
+        nodesurf = np.reshape(face, [len(face) // 4, 4])
+        nodesurf = remove_duplicates_2d_ordered(nodesurf)
 
     elif sample_type == "wulff" or sample_type == "cube":
         nodesurf = []
-        for F in faces:
+        for face in faces:
+            A, B, C = points[face[0] - 1], points[face[1] - 1], points[face[2] - 1]
+            AB, AC = B - A, C - A
+
             L = []
-            eps = 0.000001
-            A = points[int(F[0] - 1)]
-            B = points[int(F[1] - 1)]
-            C = points[int(F[2] - 1)]
-            AB = B - A
-            AC = C - A
-            for M in vertices:
-                AM = M[:3] - A
-                matrix = np.array(
+            for vertex in vertices:
+                AM = vertex[:3] - A
+                det = np.linalg.det(
                     [
                         [AM[0], AB[0], AC[0]],
                         [AM[1], AB[1], AC[1]],
                         [AM[2], AB[2], AC[2]],
                     ],
-                    dtype=float,
                 )
-                det = np.linalg.det(matrix)
-                if abs(det) <= eps:
-                    L.append([M[0], M[1], M[2], M[3]])
+
+                if np.abs(det) <= 1e-6:
+                    L.append([*vertex])
+
             nodesurf.append(L)
-        return nodesurf
+
+    return nodesurf
 
 
 def remove_duplicates_2d_ordered(data):
@@ -689,14 +630,14 @@ def remove_duplicates_2d_ordered(data):
     """
     seen = set()
     result = []
-    
+
     for item in data:
         t_item = tuple(item)
-        
+
         if t_item not in seen:
             result.append(item)
             seen.add(t_item)
-    
+
     return result
 
 
@@ -737,23 +678,21 @@ def rough_matrix_sphere(nbPoint, B, thetaa, phii, vert_phi_theta, r):
 
     :return: Rough matrix
     """
-    N_s = 9
-    N_e = 17
+    degrees = np.arange(9, 18)
+
     print("====== > Creating random rough surface")
-    for degree in range(N_s, N_e + 1, 1):  # EQUATION
-        if degree == N_s:
-            print(f"====== > Harmonic degree : {degree}, ", end=" ", flush=True)
-        elif degree == N_e:
-            print(f"{degree}.")
-        else:
-            print(f"{degree}, ", end=" ", flush=True)
-        _r_amplitude = 0 + 1 * np.random.randn(nbPoint)
-        _r_phase = -np.pi / 2 + np.pi * np.random.rand(nbPoint)
+    print(f"====== > Harmonic degrees: {', '.join(map(str, degrees))}.")
+
+    for degree in degrees:
+        random_amplitude = np.random.randn(nbPoint)
+        random_phase = np.random.uniform(-np.pi / 2, np.pi / 2, nbPoint)
         mod = degree ** (-B / 2)
-        for i, [theta, phi] in enumerate(vert_phi_theta):
-            _phase = sp.sph_harm(0, degree, thetaa - theta, phii - phi).real
-            _phase = 2 * _phase / np.ptp(_phase)
-            r += _r_amplitude[i] * mod * np.cos(_phase + _r_phase)
+
+        for i, (theta, phi) in enumerate(vert_phi_theta):
+            sph_phase = sp.sph_harm(0, degree, thetaa - theta, phii - phi).real
+            sph_phase = 2 * sph_phase / np.ptp(sph_phase)
+            r += random_amplitude[i] * mod * np.cos(sph_phase + random_phase)
+
     return r
 
 
@@ -800,47 +739,23 @@ def rebox(file_lmp):
 
     :return: Reboxed position file
     """
-    fint = open(file_lmp)
-    lines = fint.readlines()
-    data = np.array([i.split() for i in lines[15 : len(lines) : 1]])
-    listN = data[:, 0]
-    listi = data[:, 1]
-    listx = data[:, 2]
-    listy = data[:, 3]
-    listz = data[:, 4]
-    listN_int = [int(i) for i in listN]
-    listi_int = [int(i) for i in listi]
-    listx_float = [float(i) for i in listx]
-    listy_float = [float(i) for i in listy]
-    listz_float = [float(i) for i in listz]
-    mx = min(listx_float)
-    my = min(listy_float)
-    mz = min(listz_float)
-    listx_n = [x - mx for x in listx_float]
-    listy_n = [y - my for y in listy_float]
-    listz_n = [z - mz for z in listz_float]
-    compt = 0
-    for i in range(0, len(lines), 1):
-        if i == 5:
-            lines[i] = f"{math.floor(min(listx_n))} {math.ceil(max(listx_n))} xlo xhi\n"
-        if i == 6:
-            lines[i] = f"{math.floor(min(listy_n))} {math.ceil(max(listy_n))} ylo yhi\n"
-        if i == 7:
-            lines[i] = f"{math.floor(min(listz_n))} {math.ceil(max(listz_n))} zlo zhi\n"
-        if i >= 15:
-            lines[i] = "{} {} {} {} {}\n".format(
-                listN_int[compt],
-                listi_int[compt],
-                listx_n[compt],
-                listy_n[compt],
-                listz_n[compt],
-            )
-            compt += 1
-    fint.close()
-    fend = open(file_lmp, "w")
-    fend.writelines(lines)
-    fend.close()
-    return
+    with open(file_lmp) as fint:
+        lines = fint.readlines()
+
+    data = np.loadtxt(lines[15:], dtype=float)
+
+    data[:, 2] -= np.min(data[:, 2])
+    data[:, 3] -= np.min(data[:, 3])
+    data[:, 4] -= np.min(data[:, 4])
+
+    lines[5] = f"{math.floor(min(data[:, 2]))} {math.ceil(max(data[:, 2]))} xlo xhi\n"
+    lines[6] = f"{math.floor(min(data[:, 3]))} {math.ceil(max(data[:, 3]))} ylo yhi\n"
+    lines[7] = f"{math.floor(min(data[:, 4]))} {math.ceil(max(data[:, 4]))} zlo zhi\n"
+
+    lines[15:] = [f"{int(id_)} {int(type_)} {x} {y} {z}\n" for id_, type_, x, y, z in data]
+
+    with open(file_lmp, "w") as fend:
+        fend.writelines(lines)
 
 
 def write_stl(filename, vertices, face_list):
@@ -855,23 +770,17 @@ def write_stl(filename, vertices, face_list):
     :type face_list: array
     """
     with open(filename, "w") as f:
-        f.write("solid Created by Gmsh \n")
+        f.write("solid Created by Gmsh\n")
         for face in face_list:
-            p1 = vertices[face[0]]
-            p2 = vertices[face[1]]
-            p3 = vertices[face[2]]
-            OA = [p1[0] - p2[0], p1[1] - p2[1], p1[2] - p2[2]]
-            OB = [p1[0] - p3[0], p1[1] - p3[1], p1[2] - p3[2]]
-            normal = np.cross(OA, OB)
+            p1, p2, p3 = vertices[face]
+            normal = np.cross(p1 - p2, p1 - p3)
             f.write(f"facet normal {normal[0]} {normal[1]} {normal[2]}\n")
             f.write("  outer loop\n")
-            f.write(f"    vertex {p1[0]} {p1[1]} {p1[2]}\n")
-            f.write(f"    vertex {p2[0]} {p2[1]} {p2[2]}\n")
-            f.write(f"    vertex {p3[0]} {p3[1]} {p3[2]}\n")
+            for p in [p1, p2, p3]:
+                f.write(f"    vertex {p[0]} {p[1]} {p[2]}\n")
             f.write("  endloop\n")
             f.write("endfacet\n")
-        f.write("endsolid Created by Gmsh")
-    return
+        f.write("endsolid Created by Gmsh\n")
 
 
 def rms_calc(Z):
@@ -1074,26 +983,20 @@ def faces_normals(obj_points, obj_faces):
     """
     list_n = []
     for F in obj_faces:
-        A = obj_points[int(F[0] - 1)]
-        B = obj_points[int(F[1] - 1)]
-        C = obj_points[int(F[2] - 1)]
-        centroid = np.array(
-            [
-                (A[0] + B[0] + C[0]) / 3,
-                (A[1] + B[1] + C[1]) / 3,
-                (A[2] + B[2] + C[2]) / 3,
-            ]
-        )
-        AB = B - A
-        AC = C - A
-        n = np.cross(AB, AC)
+        A, B, C = obj_points[F[0] - 1], obj_points[F[1] - 1], obj_points[F[2] - 1]
+        centroid = (A + B + C) / 3
+    
+        n = np.cross(B - A, C - A)
         n = n / np.linalg.norm(n)
         d = -np.dot(n, A)
+        
         # Check if its the external normal
         point = centroid + n
         if not (does_segment_intersect_plane(point, A, n[0], n[1], n[2], d)):
             n = -1 * n
+            
         list_n.append([n[0], n[1], n[2]])
+    
     return list_n
 
 
@@ -1117,7 +1020,7 @@ def does_segment_intersect_plane(S, P, a, b, c, d):
     x1, y1, z1 = 0.0, 0.0, 0.0
     x2, y2, z2 = S
     p1, p2, p3 = P
-    
+
     denom = a * (x2 - x1) + b * (y2 - y1) + c * (z2 - z1)
     if denom == 0.0 and a * x2 + b * y2 + c * z2 + d == 0:
         return True
@@ -1140,11 +1043,11 @@ def identify_edge_and_corner_nodes(nodesurf):
     """
     all_points = np.concatenate(nodesurf)
     list_index = all_points[:, 3]
-    
+
     unique, counts = np.unique(list_index, return_counts=True)
     node_edge = unique[counts == 2]
     node_corner = unique[counts >= 3]
-    
+
     return node_edge, node_corner
 
 
@@ -1193,7 +1096,7 @@ def make_rough_wulff(vertices, B, C1, RMS, N, M, nodesurf, node_edge, node_corne
         surf_norm = normalize(surf_rot)
         xv = surf_norm[:, 0]
         yv = surf_norm[:, 1]
-        m, n = random_numbers(sfrN, sfrM)
+        m, n = get_random_matrices(sfrN, sfrM)
 
         z = random_surf2(m, n, B, xv, yv, sfrM, sfrN, C1, RMS, verbose=False)
 
@@ -1227,16 +1130,15 @@ def align_surface_normal_with_z(surf, n1):
     """
     n2 = np.array([0, 0, 1])
     n = np.cross(n1, n2)
-    
+
     if np.all(n == 0):
         n = n2
-        
+
     n = n / np.linalg.norm(n)
     theta = np.arccos(np.dot(n1, n2))
     rot = R.from_rotvec(theta * np.array(n))
-    
     surf_rot = np.array([np.append(rot.apply(p[:3]), p[3]) for p in surf])
-    
+
     return surf_rot
 
 
@@ -1265,24 +1167,28 @@ def cube_faces(length):
 
     :return: Points and faces of the cube
     """
-    vertex_coords = np.array([
-        [0, 0, 0],
-        [length, 0, 0],
-        [0, length, 0],
-        [length, length, 0],
-        [0, 0, length],
-        [length, 0, length],
-        [0, length, length],
-        [length, length, length],
-    ])
-    face_indices = np.array([
-        [1, 2, 3, 4],
-        [1, 2, 5, 6],
-        [2, 4, 6, 8],
-        [4, 8, 3, 7],
-        [1, 5, 3, 7],
-        [5, 6, 7, 8],
-    ])
+    vertex_coords = np.array(
+        [
+            [0, 0, 0],
+            [length, 0, 0],
+            [0, length, 0],
+            [length, length, 0],
+            [0, 0, length],
+            [length, 0, length],
+            [0, length, length],
+            [length, length, length],
+        ]
+    )
+    face_indices = np.array(
+        [
+            [1, 2, 3, 4],
+            [1, 2, 5, 6],
+            [2, 4, 6, 8],
+            [4, 8, 3, 7],
+            [1, 5, 3, 7],
+            [5, 6, 7, 8],
+        ]
+    )
     return vertex_coords, face_indices
 
 
